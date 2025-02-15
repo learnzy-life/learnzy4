@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import altair as alt
 import time
 import unicodedata
 
@@ -64,75 +63,44 @@ def load_mock_data(gid):
         return None
 
 # ================== Test Components ==================
-def show_question(q):
-    st.subheader(f"Question {st.session_state.current_question + 1}")
-    st.markdown(f"**{q['question_text']}**")
+def show_question():
+    q = st.session_state.data_loaded[st.session_state.current_question]
     
-    options = [q['option_a'], q['option_b'], q['option_c'], q['option_d']]
+    st.subheader(f"Question {st.session_state.current_question + 1}")
+    st.markdown(f"**{q.get('question_text', 'Question text missing')}**")
+    
+    options = [
+        q.get('option_a', 'Option A missing'),
+        q.get('option_b', 'Option B missing'),
+        q.get('option_c', 'Option C missing'),
+        q.get('option_d', 'Option D missing')
+    ]
+    
     answer = st.radio("Select your answer:", options, key=f"q{st.session_state.current_question}")
     
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if st.button("Next ➡️"):
-            process_answer(q, answer)
-            if st.session_state.current_question < len(st.session_state.data_loaded) - 1:
-                st.session_state.current_question += 1
-                st.session_state.question_start_time = time.time()
-                st.rerun()
-            else:
-                st.session_state.test_started = False
-                st.rerun()
-
-def process_answer(q, answer):
-    question_id = q['question_number']
-    options = [q['option_a'], q['option_b'], q['option_c'], q['option_d']]
-    try:
-        selected_option = chr(65 + options.index(answer))
-    except ValueError:
-        selected_option = 'X'
-    
-    st.session_state.user_answers[question_id] = {
-        'selected': selected_option,
-        'correct': q['correct_answer'],
-        'time_taken': time.time() - st.session_state.question_start_time
-    }
-
-# ================== Analysis Sections ==================
-def show_analysis(data):
-    st.title("📊 Detailed Analysis Report")
-    
-    # Time Management Section
-    with st.expander("⏱ Time Management Analysis", expanded=True):
-        total_time = sum(ans['time_taken'] for ans in st.session_state.user_answers.values())
-        benchmark_time = sum(q.get('time_to_solve', 0) for q in data)
+    if st.button("Next ➡️"):
+        # Save answer
+        question_id = q.get('question_number', st.session_state.current_question)
+        st.session_state.user_answers[question_id] = {
+            'selected': answer,
+            'correct': q.get('correct_answer', 'X'),
+            'time_taken': time.time() - st.session_state.question_start_time
+        }
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Your Total Time", f"{total_time//60}m {int(total_time%60)}s")
-        col2.metric("Recommended Time", f"{benchmark_time//60}m {int(benchmark_time%60)}s")
-        col3.metric("Difference", 
-                   f"{abs(total_time-benchmark_time)//60}m {int(abs(total_time-benchmark_time)%60)}s",
-                   delta="Under" if total_time < benchmark_time else "Over")
-    
-    # Topic Analysis Section
-    with st.expander("📚 Topic-wise Performance", expanded=True):
-        topic_stats = {}
-        for q in data:
-            topic = q.get('topic', 'Unknown')
-            if topic not in topic_stats:
-                topic_stats[topic] = {'correct': 0, 'total': 0}
-            ans = st.session_state.user_answers.get(q['question_number'], {})
-            topic_stats[topic]['correct'] += 1 if ans.get('selected') == ans.get('correct') else 0
-            topic_stats[topic]['total'] += 1
-        
-        for topic, stats in topic_stats.items():
-            accuracy = (stats['correct'] / stats['total']) * 100
-            st.subheader(f"{topic} ({accuracy:.1f}%)")
-            st.progress(accuracy/100)
+        # Move to next question or finish
+        if st.session_state.current_question < len(st.session_state.data_loaded) - 1:
+            st.session_state.current_question += 1
+            st.session_state.question_start_time = time.time()
+            st.rerun()
+        else:
+            st.session_state.test_started = False
+            st.rerun()
 
 # ================== Main App Flow ==================
 def main():
     st.set_page_config(page_title="ExamPrep Pro", layout="wide")
     
+    # Initialize session state
     if 'current_question' not in st.session_state:
         st.session_state.update({
             'test_selected': None,
@@ -143,8 +111,8 @@ def main():
             'question_start_time': time.time()
         })
     
+    # Test selection screen
     if not st.session_state.test_selected:
-        # Test selection screen
         st.title("📚 ExamPrep Pro")
         for mock_name, mock_data in MOCKS.items():
             if st.button(mock_name):
@@ -158,15 +126,15 @@ def main():
             st.error("Failed to load test data")
             return
         
+        # Test taking flow
         if st.session_state.test_started:
-            # Question answering flow
-            q = data[st.session_state.current_question]
-            show_question(q)
+            show_question()
         else:
             # Pre-test screen
             with st.expander("📝 Test Syllabus", expanded=True):
                 st.write(f"Total Questions: {len(data)}")
-                st.write(f"Subjects: {', '.join(set(q['subject'] for q in data))}")
+                st.write(f"Subjects: {', '.join(set(str(q.get('subject', '')) for q in data)}")
+                
                 if st.button("🚀 Start Test"):
                     st.session_state.test_started = True
                     st.session_state.current_question = 0
@@ -174,9 +142,10 @@ def main():
                     st.session_state.question_start_time = time.time()
                     st.rerun()
             
-            # Show analysis only after completing test
+            # Show analysis after completion
             if st.session_state.user_answers:
-                show_analysis(data)
+                st.title("📊 Analysis Report")
+                st.write("Test analysis content goes here")
         
         if st.button("🔙 Return to Test Selection"):
             st.session_state.clear()
