@@ -15,6 +15,14 @@ def fetch_data(gid):
         st.error(f"Error fetching data: {e}")
         return None
 
+import streamlit as st
+from analytics_ui import show_analytics_page  # Import new UI file
+
+# Inside your page management logic
+def analytics_page():
+    show_analytics_page()  # Call the function from analytics_ui.py
+
+
 # Welcome Page
 def welcome_page():
     st.title("Welcome to NEET Prep App")
