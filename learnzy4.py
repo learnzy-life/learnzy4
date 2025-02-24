@@ -9,6 +9,7 @@ def fetch_data(gid):
     url = base_url.format(gid)
     try:
         df = pd.read_csv(url)
+        df.columns = df.columns.str.strip()  # Clean column names to remove spaces
         return df
     except Exception as e:
         st.error(f"Error fetching data: {e}")
@@ -43,10 +44,9 @@ def diagnostic_test_page():
             st.session_state.time_per_question = {i: 0 for i in range(st.session_state.total_questions)}
             st.session_state.last_question = None
             st.session_state.last_timestamp = time.time()
-    
-    if st.session_state.questions is None:
-        st.error("Unable to load questions. Please try again later.")
-        return
+        else:
+            st.error("Unable to load questions. Please try again later.")
+            return
 
     questions = st.session_state.questions
     current = st.session_state.current_question
@@ -143,6 +143,16 @@ def analytics_page():
     correct_answers = questions['Correct Answer'].tolist()
     time_per_question = st.session_state.time_per_question
     tags = st.session_state.tags if 'tags' in st.session_state else {}
+
+    # Debugging: Print column names to verify
+    st.write("Columns in questions DataFrame:", questions.columns.tolist())
+
+    # Check if required columns are present
+    required_columns = ['Subject', 'Time to Solve (seconds)', 'Difficulty Level', 'Topic']
+    for col in required_columns:
+        if col not in questions.columns:
+            st.error(f"The '{col}' column is missing from the data. Please check the Google Sheet or data loading process.")
+            return
 
     # 1. Overview of the Test
     st.header("1. Overview of the Test")
