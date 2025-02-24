@@ -1,155 +1,250 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 import time
-import unicodedata
 
-# ================== Configuration ==================
-MOCKS = {
-    'Mock Test 1': {'gid': '848132391'},
-    'Mock Test 2': {'gid': '610172732'},
-    'Mock Test 3': {'gid': '1133755197'},
-    'Mock Test 4': {'gid': '690484996'},
-    'Mock Test 5': {'gid': '160639837'}
-}
-
-COLUMN_MAPPING = {
-    'question_number': ['qno', 'number'],
-    'question_text': ['question'],
-    'option_a': ['a'],
-    'option_b': ['b'],
-    'option_c': ['c'],
-    'option_d': ['d'],
-    'correct_answer': ['answer'],
-    'subject': ['sub'],
-    'topic': ['chapter'],
-    'subtopic': ['subchapter'],
-    'difficulty_level': ['difficulty'],
-    'question_structure': ['type'],
-    'blooms_taxonomy': ['bloom'],
-    'priority_level': ['priority'],
-    'time_to_solve': ['time', 'duration'],
-    'key_concept': ['concept'],
-    'common_pitfalls': ['pitfalls']
-}
-
-# ================== Helper Functions ==================
-def normalize_text(text):
-    return unicodedata.normalize('NFKD', str(text).lower().strip()).replace(' ', '_')
-
-def map_columns(df_columns):
-    column_map = {}
-    for col in df_columns:
-        normalized = normalize_text(col)
-        for standard, aliases in COLUMN_MAPPING.items():
-            if normalized in [normalize_text(a) for a in aliases + [standard]]:
-                column_map[col] = standard
-                break
-        else:
-            column_map[col] = col
-    return column_map
-
-# ================== Data Loading ==================
-@st.cache_data(show_spinner=False)
-def load_mock_data(gid):
+# Function to fetch data from Google Sheet using GID
+def fetch_data(gid):
+    base_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQtG0QdIu8N1BPgVHeYDArIRCwvMU7NmN_YUM3_UUwU2FkmMYhJTtDxoS2Lk7kX6LNJHnLlAdgLSWPx/pub?gid={}&single=true&output=csv"
+    url = base_url.format(gid)
     try:
-        url = f"https://docs.google.com/spreadsheets/d/e/2PACX-1vQvDpDbBzkcr1-yuTXAfYHvV6I0IzWHnU7SFF1ogGBK-PBIru25TthrwVJe3WiqTYchBoCiSyT0V1PJ/pub?output=csv&gid={gid}"
         df = pd.read_csv(url)
-        df = df.rename(columns=map_columns(df.columns))
-        if 'time_to_solve' in df.columns:
-            df['time_to_solve'] = pd.to_numeric(df['time_to_solve'], errors='coerce')
-        return df.to_dict('records')
+        return df
     except Exception as e:
-        st.error(f"Data loading failed: {str(e)}")
+        st.error(f"Error fetching data: {e}")
         return None
 
-# ================== Test Components ==================
-def show_question():
-    q = st.session_state.data_loaded[st.session_state.current_question]
-    
-    st.subheader(f"Question {st.session_state.current_question + 1}")
-    st.markdown(f"**{q.get('question_text', 'Question text missing')}**")
-    
-    options = [
-        q.get('option_a', 'Option A missing'),
-        q.get('option_b', 'Option B missing'),
-        q.get('option_c', 'Option C missing'),
-        q.get('option_d', 'Option D missing')
-    ]
-    
-    answer = st.radio("Select your answer:", options, key=f"q{st.session_state.current_question}")
-    
-    if st.button("Next ➡️"):
-        # Save answer
-        question_id = q.get('question_number', st.session_state.current_question)
-        st.session_state.user_answers[question_id] = {
-            'selected': answer,
-            'correct': q.get('correct_answer', 'X'),
-            'time_taken': time.time() - st.session_state.question_start_time
-        }
-        
-        # Move to next question or finish
-        if st.session_state.current_question < len(st.session_state.data_loaded) - 1:
-            st.session_state.current_question += 1
-            st.session_state.question_start_time = time.time()
-            st.rerun()
-        else:
-            st.session_state.test_started = False
-            st.rerun()
+# Welcome Page
+def welcome_page():
+    st.title("Welcome to NEET Prep App")
+    st.write("Get ready to ace NEET 2025 with our tailored diagnostic and mock tests!")
+    if st.button("Let's Crack NEET 2025"):
+        st.session_state.page = "main"
 
-# ================== Main App Flow ==================
-def main():
-    st.set_page_config(page_title="ExamPrep Pro", layout="wide")
+# Main Page
+def main_page():
+    st.title("Main Dashboard")
+    st.write("### Available Tests")
+    st.write("- **5 Mock Tests** (Currently Locked)")
+    st.write("- **Diagnostic Test** (Available Now)")
+    if st.button("Take Diagnostic Test"):
+        st.session_state.page = "diagnostic_test"
+
+# Diagnostic Test Page
+def diagnostic_test_page():
+    # Initialize session state variables if not already set
+    if 'questions' not in st.session_state:
+        st.session_state.questions = fetch_data(160639837)  # GID for Diagnostic Test
+        if st.session_state.questions is not None:
+            st.session_state.total_questions = len(st.session_state.questions)
+            st.session_state.answers = [None] * st.session_state.total_questions
+            st.session_state.current_question = 0
+            st.session_state.start_time = time.time()
+            st.session_state.time_per_question = {i: 0 for i in range(st.session_state.total_questions)}
+            st.session_state.last_question = None
+            st.session_state.last_timestamp = time.time()
     
-    # Initialize session state
-    if 'current_question' not in st.session_state:
-        st.session_state.update({
-            'test_selected': None,
-            'data_loaded': None,
-            'test_started': False,
-            'current_question': 0,
-            'user_answers': {},
-            'question_start_time': time.time()
-        })
-    
-    # Test selection screen
-    if not st.session_state.test_selected:
-        st.title("📚 ExamPrep Pro")
-        for mock_name, mock_data in MOCKS.items():
-            if st.button(mock_name):
-                st.session_state.test_selected = mock_data['gid']
-                st.session_state.data_loaded = load_mock_data(mock_data['gid'])
-                st.rerun()
-    
+    if st.session_state.questions is None:
+        st.error("Unable to load questions. Please try again later.")
+        return
+
+    questions = st.session_state.questions
+    current = st.session_state.current_question
+
+    # Update time for previous question
+    current_time = time.time()
+    if st.session_state.last_question is not None:
+        time_spent = current_time - st.session_state.last_timestamp
+        st.session_state.time_per_question[st.session_state.last_question] += time_spent
+    st.session_state.last_question = current
+    st.session_state.last_timestamp = current_time
+
+    # Display question
+    st.write(f"### Question {current + 1} of {st.session_state.total_questions}")
+    st.write(questions.iloc[current]['Question Text'])
+    options = [questions.iloc[current][f'Option {letter}'] for letter in 'ABCD']
+    if st.session_state.answers[current] is not None and st.session_state.answers[current] in options:
+        default_index = options.index(st.session_state.answers[current])
     else:
-        data = st.session_state.data_loaded
-        if not data:
-            st.error("Failed to load test data")
-            return
-        
-        # Test taking flow
-        if st.session_state.test_started:
-            show_question()
-        else:
-            # Pre-test screen
-            with st.expander("📝 Test Syllabus", expanded=True):
-                st.write(f"Total Questions: {len(data)}")
-                st.write(f"Subjects: {', '.join(set(str(q.get('subject', '')) for q in data)}")
-                
-                if st.button("🚀 Start Test"):
-                    st.session_state.test_started = True
-                    st.session_state.current_question = 0
-                    st.session_state.user_answers = {}
-                    st.session_state.question_start_time = time.time()
-                    st.rerun()
-            
-            # Show analysis after completion
-            if st.session_state.user_answers:
-                st.title("📊 Analysis Report")
-                st.write("Test analysis content goes here")
-        
-        if st.button("🔙 Return to Test Selection"):
-            st.session_state.clear()
-            st.rerun()
+        default_index = 0
+    selected = st.radio("Select your answer:", options, index=default_index)
+    st.session_state.answers[current] = selected
+
+    # Navigation buttons
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if current > 0 and st.button("Previous"):
+            st.session_state.current_question -= 1
+    with col2:
+        if current < st.session_state.total_questions - 1 and st.button("Next"):
+            st.session_state.current_question += 1
+    with col3:
+        if st.button("Submit Test"):
+            # Update time for the last question
+            current_time = time.time()
+            time_spent = current_time - st.session_state.last_timestamp
+            st.session_state.time_per_question[current] += time_spent
+            st.session_state.page = "post_test_analysis"
+
+    # Display elapsed time
+    elapsed_time = current_time - st.session_state.start_time
+    minutes = elapsed_time // 60
+    seconds = elapsed_time % 60
+    st.write(f"**Time Elapsed:** {minutes:.0f} minutes {seconds:.0f} seconds")
+    if elapsed_time >= 2400:  # 40 minutes = 2400 seconds
+        st.warning("Time's up! Please submit your test.")
+
+# Post-Test Analysis Page
+def post_test_analysis_page():
+    st.title("Post-Test Analysis")
+    questions = st.session_state.questions
+    answers = st.session_state.answers
+    correct_answers = questions['Correct Answer'].tolist()
+
+    # Calculate score and identify incorrect questions
+    score = 0
+    incorrect_indices = []
+    for i in range(st.session_state.total_questions):
+        if answers[i] == correct_answers[i]:
+            score += 4
+        elif answers[i] is not None:
+            score -= 1
+            incorrect_indices.append(i)
+
+    st.write(f"### Your Score: {score}/160")
+    st.write(f"**Incorrect Questions:** {len(incorrect_indices)}")
+
+    # Initialize tags if not already set
+    if 'tags' not in st.session_state:
+        st.session_state.tags = {i: {"error_type": "Select", "subjective_tag": "Select"} for i in incorrect_indices}
+
+    error_types = ["Select", "Silly Mistake", "Forgot", "Not Prepared", "Other"]
+    subjective_tags = ["Select", "Panicked", "Less Time", "Confused", "Other"]
+
+    # Display incorrect questions with tagging options
+    for idx in incorrect_indices:
+        st.write(f"#### Question {idx + 1}")
+        st.write(questions.iloc[idx]['Question Text'])
+        st.write(f"**Your Answer:** {answers[idx]}")
+        st.write(f"**Correct Answer:** {correct_answers[idx]}")
+        error_type = st.selectbox("Error Type:", error_types, index=error_types.index(st.session_state.tags[idx]["error_type"]), key=f"error_{idx}")
+        subjective_tag = st.selectbox("Subjective Tag:", subjective_tags, index=subjective_tags.index(st.session_state.tags[idx]["subjective_tag"]), key=f"subjective_{idx}")
+        st.session_state.tags[idx] = {"error_type": error_type, "subjective_tag": subjective_tag}
+        st.write("---")
+
+    if st.button("Proceed to Analytics"):
+        st.session_state.page = "analytics"
+
+# Analytics Page
+def analytics_page():
+    st.title("Analytics Section")
+    questions = st.session_state.questions
+    answers = st.session_state.answers
+    correct_answers = questions['Correct Answer'].tolist()
+    time_per_question = st.session_state.time_per_question
+    tags = st.session_state.tags if 'tags' in st.session_state else {}
+
+    # 1. Overview of the Test
+    st.header("1. Overview of the Test")
+    correct_count = sum(1 for i in range(40) if answers[i] == correct_answers[i])
+    accuracy = (correct_count / 40) * 100
+    st.write(f"**Total Correct:** {correct_count}/40")
+    st.write(f"**Accuracy:** {accuracy:.2f}%")
+    total_time = sum(time_per_question.values())
+    st.write(f"**Total Time Taken:** {total_time // 60:.0f} minutes {total_time % 60:.0f} seconds")
+
+    # 2. Time Management
+    st.header("2. Time Management")
+    st.write("#### A. Overall Time Metrics")
+    st.write(f"- **Test Duration Allowed:** 40 minutes")
+    st.write(f"- **Your Total Time:** {total_time // 60:.0f} minutes {total_time % 60:.0f} seconds")
+    ideal_time = questions['Time to Solve (seconds)'].sum()
+    st.write(f"- **Ideal Total Time:** {ideal_time // 60:.0f} minutes {ideal_time % 60:.0f} seconds")
+    if total_time > ideal_time:
+        st.write(f"> You took {(total_time - ideal_time) // 60:.0f} minutes more than the ideal time.")
+    else:
+        st.write("> You finished faster than the ideal time. Great job!")
+
+    st.write("#### B. Question-by-Question Time Analysis")
+    time_data = pd.DataFrame({
+        'Question': range(1, 41),
+        'Your Time': [time_per_question[i] for i in range(40)],
+        'Ideal Time': questions['Time to Solve (seconds)'],
+        'Subject': questions['Subject']
+    })
+    chart = alt.Chart(time_data).mark_bar().encode(
+        x='Question:N',
+        y=alt.Y('Your Time:Q', title='Time (seconds)'),
+        color=alt.Color('Subject:N', legend=alt.Legend(title="Subject")),
+        tooltip=['Question', 'Your Time', 'Ideal Time', 'Subject']
+    ).properties(width=600, height=400)
+    st.altair_chart(chart)
+    st.write("> This chart shows your time per question compared to the ideal time, segmented by subject.")
+
+    st.write("#### C. Feedback on Slow and Quick Questions")
+    slow_questions = [i + 1 for i in range(40) if time_per_question[i] > questions['Time to Solve (seconds)'][i] * 1.5]
+    quick_questions = [i + 1 for i in range(40) if time_per_question[i] < questions['Time to Solve (seconds)'][i] * 0.75 and time_per_question[i] > 0]
+    if slow_questions:
+        st.write(f"> You were slower on questions: {', '.join(map(str, slow_questions))}. Practice timed drills to improve speed.")
+    if quick_questions:
+        st.write(f"> You rushed through questions: {', '.join(map(str, quick_questions))}. Double-check your answers to ensure accuracy.")
+
+    # 3. Sub-topic and Topic-wise Analysis
+    st.header("3. Sub-topic and Topic-wise Analysis")
+    st.write("#### Subject-wise Overview")
+    subjects = questions['Subject'].unique()
+    for subject in subjects:
+        subj_questions = questions[questions['Subject'] == subject]
+        subj_answers = [answers[i] for i in subj_questions.index]
+        subj_correct = [correct_answers[i] for i in subj_questions.index]
+        subj_score = sum(4 if a == c else -1 if a is not None else 0 for a, c in zip(subj_answers, subj_correct))
+        total_possible = len(subj_questions) * 4
+        accuracy = (subj_score / total_possible) * 100 if total_possible > 0 else 0
+        mastery = "NEET Ready" if accuracy >= 80 else "On the Path" if accuracy >= 50 else "Needs Improvement"
+        st.write(f"- **{subject}**: {subj_score}/{total_possible} ({accuracy:.2f}%) - **{mastery}**")
+
+    st.write("#### Topic Distribution")
+    # Placeholder for pie chart (to be implemented)
+
+    # 4. Deep Insights
+    st.header("4. Deep Insights")
+    st.write("#### Question Difficulty")
+    difficulties = questions['Difficulty Level'].unique()
+    for diff in difficulties:
+        diff_questions = questions[questions['Difficulty Level'] == diff]
+        diff_answers = [answers[i] for i in diff_questions.index]
+        diff_correct = [correct_answers[i] for i in diff_questions.index]
+        correct = sum(1 for a, c in zip(diff_answers, diff_correct) if a == c)
+        total = len(diff_questions)
+        acc = (correct / total * 100) if total > 0 else 0
+        st.write(f"- **{diff}**: {correct}/{total} correct ({acc:.2f}%)")
+    # Add more deep insights as needed
+
+    # 5. Improvement and Resources
+    st.header("5. Improvement and Resources")
+    st.write("#### Top 5 Areas to Improve")
+    topics = questions.groupby('Topic').apply(
+        lambda x: (sum(1 for i in x.index if answers[i] == correct_answers[i]) / len(x)) * 100
+    ).sort_values().head(5)
+    for topic, acc in topics.items():
+        st.write(f"- **{topic}**: Accuracy {acc:.2f}% - Practice more questions on this topic.")
+    st.write("**Resources:** Explore practice sets and videos online for these topics.")
+
+# Main Function to Control Page Flow
+def main():
+    if 'page' not in st.session_state:
+        st.session_state.page = "welcome"
+
+    if st.session_state.page == "welcome":
+        welcome_page()
+    elif st.session_state.page == "main":
+        main_page()
+    elif st.session_state.page == "diagnostic_test":
+        diagnostic_test_page()
+    elif st.session_state.page == "post_test_analysis":
+        post_test_analysis_page()
+    elif st.session_state.page == "analytics":
+        analytics_page()
 
 if __name__ == "__main__":
     main()
