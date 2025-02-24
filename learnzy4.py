@@ -102,15 +102,19 @@ def time_management_section(questions, time_per_question):
 def deep_insights_section(questions, answers, correct_answers):
     st.header("🔍 Deep Learning Analysis")
     
+    # --- Deep Insights Section with AI ---
+def deep_insights_section(questions, answers, correct_answers):
+    st.header("🔍 Deep Learning Analysis")
+    
     # Difficulty analysis
     diff_analysis = questions.groupby('Difficulty Level').apply(
-        lambda x: (sum(answers[i] == correct_answers[i] for i in x.index)/len(x)
+        lambda x: (sum(answers[i] == correct_answers[i] for i in x.index) / len(x)
     ).reset_index(name='Accuracy')
     
     # Bloom's Taxonomy analysis
     bloom_analysis = questions.groupby('Bloom’s Taxonomy').apply(
-        lambda x: (sum(answers[i] == correct_answers[i] for i in x.index)/len(x)
-    ).reset_index(name='Accuracy')
+        lambda x: (sum(answers[i] == correct_answers[i] for i in x.index) / len(x)
+    ).reset_index(name='Accuracy')  # Fixed missing parenthesis here
     
     # Generate AI insights
     insight_context = f"""
