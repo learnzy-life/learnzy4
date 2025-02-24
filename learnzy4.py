@@ -144,9 +144,6 @@ def analytics_page():
     time_per_question = st.session_state.time_per_question
     tags = st.session_state.tags if 'tags' in st.session_state else {}
 
-    # Debugging: Print column names to verify
-    st.write("Columns in questions DataFrame:", questions.columns.tolist())
-
     # Check if required columns are present
     required_columns = ['Subject', 'Time to Solve (seconds)', 'Difficulty Level', 'Topic']
     for col in required_columns:
