@@ -5,8 +5,6 @@ import altair as alt
 import time
 from datetime import datetime
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import confusion_matrix
 import plotly.express as px
 import plotly.graph_objects as go
 from typing import Dict, List, Tuple, Optional
@@ -33,6 +31,7 @@ class TestData:
         self.last_question = None
         self.last_timestamp = None
         self.tags = {}
+        self.current_question = 0
         
     def fetch_data(self) -> bool:
         """Fetch test data from Google Sheets."""
@@ -51,7 +50,6 @@ class TestData:
 class Analytics:
     def __init__(self, test_data: TestData):
         self.test_data = test_data
-        self.scaler = MinMaxScaler()
         
     def calculate_score(self) -> Tuple[int, List[int]]:
         """Calculate test score and identify incorrect questions."""
@@ -83,22 +81,37 @@ class Analytics:
         subject_time = {}
         for subject in self.test_data.questions['Subject'].unique():
             mask = self.test_data.questions['Subject'] == subject
+            subject_questions = self.test_data.questions[mask]
             subject_time[subject] = {
-                'total_time': sum(self.test_data.time_per_question[i] for i in self.test_data.questions[mask].index),
-                'ideal_time': self.test_data.questions[mask]['Time to Solve (seconds)'].sum()
+                'total_time': sum(self.test_data.time_per_question[i] for i in subject_questions.index),
+                'ideal_time': subject_questions['Time to Solve (seconds)'].sum()
             }
         return subject_time
 
     def _calculate_time_efficiency(self) -> Dict:
         """Calculate time efficiency metrics."""
-        actual_times = np.array(list(self.test_data.time_per_question.values()))
-        ideal_times = self.test_data.questions['Time to Solve (seconds)'].values
-        efficiency = (ideal_times - actual_times) / ideal_times
+        efficiencies = []
+        slow_questions = []
+        quick_questions = []
+        
+        for i in range(self.test_data.total_questions):
+            actual_time = self.test_data.time_per_question[i]
+            ideal_time = self.test_data.questions.iloc[i]['Time to Solve (seconds)']
+            
+            if actual_time > 0 and ideal_time > 0:
+                efficiency = (ideal_time - actual_time) / ideal_time
+                efficiencies.append(efficiency)
+                
+                if efficiency < -0.5:  # Took 50% longer than ideal
+                    slow_questions.append(i)
+                elif efficiency > 0.5:  # Took 50% less time than ideal
+                    quick_questions.append(i)
+        
         return {
-            'average_efficiency': float(np.mean(efficiency)),
-            'std_efficiency': float(np.std(efficiency)),
-            'slow_questions': list(np.where(efficiency < -0.5)[0]),
-            'quick_questions': list(np.where(efficiency > 0.5)[0])
+            'average_efficiency': sum(efficiencies) / len(efficiencies) if efficiencies else 0,
+            'std_efficiency': np.std(efficiencies) if efficiencies else 0,
+            'slow_questions': slow_questions,
+            'quick_questions': quick_questions
         }
 
 class UI:
@@ -107,36 +120,24 @@ class UI:
             st.session_state.page = "welcome"
         if 'test_data' not in st.session_state:
             st.session_state.test_data = None
-            
+
     def render_welcome(self):
         st.title("Welcome to NEET Prep AI")
         st.write("Get ready to ace NEET 2025 with our AI-powered diagnostic and mock tests!")
         
-        # Add animated progress bar using custom HTML/CSS
+        # Add progress bar
         st.markdown("""
-        <style>
-        .progress-bar {
-            width: 100%;
-            height: 20px;
-            background-color: #f0f0f0;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-        .progress {
-            width: 0%;
-            height: 100%;
-            background-color: #4CAF50;
-            animation: progress 2s ease-in-out forwards;
-        }
-        @keyframes progress {
-            from { width: 0%; }
-            to { width: 100%; }
-        }
-        </style>
-        <div class="progress-bar">
-            <div class="progress"></div>
-        </div>
-        """, unsafe_allow_html=True)
+            <style>
+            .stProgress > div > div > div > div {
+                background-color: #4CAF50;
+            }
+            </style>""", 
+            unsafe_allow_html=True
+        )
+        progress_bar = st.progress(0)
+        for i in range(100):
+            time.sleep(0.01)
+            progress_bar.progress(i + 1)
         
         if st.button("Let's Crack NEET 2025", key="start_button"):
             st.session_state.page = "main"
@@ -144,10 +145,9 @@ class UI:
     def render_main_dashboard(self):
         st.title("Main Dashboard")
         
-        # Create tabs for different sections
-        tabs = st.tabs(["Available Tests", "Your Progress", "Resources"])
+        tab1, tab2, tab3 = st.tabs(["Available Tests", "Your Progress", "Resources"])
         
-        with tabs[0]:
+        with tab1:
             st.write("### Mock Tests")
             cols = st.columns(5)
             for i, col in enumerate(cols, 1):
@@ -160,10 +160,10 @@ class UI:
                 st.session_state.page = "diagnostic_test"
                 st.session_state.test_data = TestData(MOCK_TEST_GIDS['diagnostic'])
                 
-        with tabs[1]:
+        with tab2:
             st.write("Your progress will appear here after completing tests.")
             
-        with tabs[2]:
+        with tab3:
             st.write("### Study Resources")
             st.write("- 📚 NCERT Notes")
             st.write("- 🎥 Video Lectures")
@@ -180,7 +180,7 @@ class UI:
 
     def _render_question(self):
         test_data = st.session_state.test_data
-        current = test_data.current_question if hasattr(test_data, 'current_question') else 0
+        current = test_data.current_question
         
         # Update time for previous question
         current_time = time.time()
@@ -193,14 +193,13 @@ class UI:
         # Display question with enhanced UI
         st.write(f"### Question {current + 1} of {test_data.total_questions}")
         
-        # Create tabs for question and any associated image/diagram
-        q_tabs = st.tabs(["Question", "Reference Material"])
+        question_tab, reference_tab = st.tabs(["Question", "Reference Material"])
         
-        with q_tabs[0]:
+        with question_tab:
             st.write(test_data.questions.iloc[current]['Question Text'])
             options = [test_data.questions.iloc[current][f'Option {letter}'] for letter in 'ABCD']
             
-            # Enhanced radio buttons with better visual feedback
+            # Enhanced radio buttons
             for i, option in enumerate(options):
                 col1, col2 = st.columns([0.1, 0.9])
                 with col1:
@@ -210,20 +209,20 @@ class UI:
                 if selected:
                     test_data.answers[current] = option
 
-        with q_tabs[1]:
+        with reference_tab:
             st.write("No additional reference material for this question.")
 
     def _render_navigation(self):
         test_data = st.session_state.test_data
-        current = test_data.current_question if hasattr(test_data, 'current_question') else 0
+        current = test_data.current_question
         
         col1, col2, col3 = st.columns(3)
         with col1:
             if current > 0 and st.button("⬅️ Previous"):
-                test_data.current_question = current - 1
+                test_data.current_question -= 1
         with col2:
             if current < test_data.total_questions - 1 and st.button("Next ➡️"):
-                test_data.current_question = current + 1
+                test_data.current_question += 1
         with col3:
             if st.button("📝 Submit Test"):
                 st.session_state.page = "post_test_analysis"
@@ -234,17 +233,68 @@ class UI:
         minutes = int(elapsed_time // 60)
         seconds = int(elapsed_time % 60)
         
-        # Create a progress bar for time
+        # Progress bar for time
         progress = min(elapsed_time / 2400, 1.0)  # 40 minutes = 2400 seconds
         st.progress(progress)
         
-        # Display time with color coding
+        # Time display with color coding
         if elapsed_time >= 2400:
             st.error(f"⏰ Time's up! {minutes:02d}:{seconds:02d}")
         elif elapsed_time >= 1800:  # Last 10 minutes
             st.warning(f"⏰ Time remaining: {minutes:02d}:{seconds:02d}")
         else:
             st.info(f"⏰ Time elapsed: {minutes:02d}:{seconds:02d}")
+
+    def render_post_test_analysis(self):
+        st.title("Post-Test Analysis")
+        test_data = st.session_state.test_data
+        analytics = Analytics(test_data)
+        score, incorrect_indices = analytics.calculate_score()
+
+        st.write(f"### Your Score: {score}/160")
+        st.write(f"**Incorrect Questions:** {len(incorrect_indices)}")
+
+        for idx in incorrect_indices:
+            st.write(f"#### Question {idx + 1}")
+            st.write(test_data.questions.iloc[idx]['Question Text'])
+            st.write(f"**Your Answer:** {test_data.answers[idx]}")
+            st.write(f"**Correct Answer:** {test_data.questions.iloc[idx]['Correct Answer']}")
+            
+            # Error type and subjective tag selection
+            col1, col2 = st.columns(2)
+            with col1:
+                error_type = st.selectbox(
+                    "Error Type:",
+                    ["Select", "Silly Mistake", "Forgot", "Not Prepared", "Other"],
+                    key=f"error_{idx}"
+                )
+            with col2:
+                subjective_tag = st.selectbox(
+                    "Subjective Tag:",
+                    ["Select", "Panicked", "Less Time", "Confused", "Other"],
+                    key=f"subjective_{idx}"
+                )
+            
+            test_data.tags[idx] = {
+                "error_type": error_type,
+                "subjective_tag": subjective_tag
+            }
+            st.write("---")
+
+        if st.button("Proceed to Analytics"):
+            st.session_state.page = "analytics"
+
+    def render_analytics(self):
+        st.title("Analytics Section")
+        analytics = Analytics(st.session_state.test_data)
+        time_analysis = analytics.generate_time_analysis()
+        
+        # Display analytics sections
+        self._render_overview_section()
+        self._render_time_management_section(time_analysis)
+        self._render_subject_analysis()
+        self._render_deep_insights()
+        self._render_improvement_section()
 
 def main():
     ui = UI()
